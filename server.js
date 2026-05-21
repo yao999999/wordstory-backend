@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1063,6 +1064,284 @@ ${words.map((w, i) => `${i + 1}. ${w.word} ${w.phonetic || ''} ${w.pos || ''} ${
     console.error('生成剧情单词失败:', error);
     res.status(500).json({ success: false, message: '生成剧情单词失败', error: error.message });
   }
+});
+
+// ==================== 会员支付系统（虎皮椒） ====================
+
+const XUNHU_APPID = process.env.XUNHU_APPID || '';
+const XUNHU_APPSECRET = process.env.XUNHU_APPSECRET || '';
+const XUNHU_GATEWAY = 'https://api.xunhupay.com/payment/do.html';
+const XUNHU_GATEWAY_BACKUP = 'https://api.dpweixin.com/payment/do.html';
+
+// 会员套餐定义
+const PLANS = [
+  { id: 'monthly', name: '包月会员', price: 19.9, days: 30, desc: '适合体验用户' },
+  { id: 'quarterly', name: '包季会员', price: 29.9, days: 90, desc: '最受欢迎' },
+  { id: 'semiannual', name: '半年会员', price: 39.9, days: 180, desc: '超值之选' },
+  { id: 'yearly', name: '包年会员', price: 69.9, days: 365, desc: '最划算' },
+];
+
+// 会员数据存储（JSON文件）
+const MEMBERS_DIR = path.join(__dirname, 'data', 'members');
+const ORDERS_DIR = path.join(__dirname, 'data', 'orders');
+if (!fs.existsSync(MEMBERS_DIR)) fs.mkdirSync(MEMBERS_DIR, { recursive: true });
+if (!fs.existsSync(ORDERS_DIR)) fs.mkdirSync(ORDERS_DIR, { recursive: true });
+
+// 生成虎皮椒签名
+function generateXunhuHash(params, appSecret) {
+  const sortedKeys = Object.keys(params).filter(k => k !== 'hash' && params[k] !== '' && params[k] !== null && params[k] !== undefined).sort();
+  const str = sortedKeys.map(k => `${k}=${params[k]}`).join('&');
+  return crypto.createHash('md5').update(str + appSecret).digest('hex');
+}
+
+// 验证虎皮椒签名
+function verifyXunhuHash(params, appSecret) {
+  const receivedHash = params.hash;
+  const calculatedHash = generateXunhuHash(params, appSecret);
+  return receivedHash === calculatedHash;
+}
+
+// 获取会员数据
+function getMember(deviceId) {
+  const filePath = path.join(MEMBERS_DIR, `${deviceId}.json`);
+  if (!fs.existsSync(filePath)) return null;
+  return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+}
+
+// 保存会员数据
+function saveMember(deviceId, data) {
+  const filePath = path.join(MEMBERS_DIR, `${deviceId}.json`);
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+// 保存订单数据
+function saveOrder(orderId, data) {
+  const filePath = path.join(ORDERS_DIR, `${orderId}.json`);
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+// 获取订单数据
+function getOrder(orderId) {
+  const filePath = path.join(ORDERS_DIR, `${orderId}.json`);
+  if (!fs.existsSync(filePath)) return null;
+  return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+}
+
+// 检查会员是否有效
+function isMemberActive(member) {
+  if (!member || !member.expiryDate) return false;
+  return new Date(member.expiryDate) > new Date();
+}
+
+// 生成唯一订单号
+function generateOrderId() {
+  const now = new Date();
+  const ts = now.getFullYear().toString() +
+    (now.getMonth() + 1).toString().padStart(2, '0') +
+    now.getDate().toString().padStart(2, '0') +
+    now.getHours().toString().padStart(2, '0') +
+    now.getMinutes().toString().padStart(2, '0') +
+    now.getSeconds().toString().padStart(2, '0');
+  const rand = Math.random().toString(36).substring(2, 8).toUpperCase();
+  return `WS${ts}${rand}`;
+}
+
+// 获取套餐信息
+app.get('/api/membership/plans', (req, res) => {
+  res.json({ success: true, plans: PLANS });
+});
+
+// 查询会员状态
+app.get('/api/membership/status', (req, res) => {
+  const deviceId = req.query.device_id;
+  if (!deviceId) {
+    return res.json({ success: true, isMember: false, message: '未提供设备ID' });
+  }
+  const member = getMember(deviceId);
+  const active = isMemberActive(member);
+  res.json({
+    success: true,
+    isMember: active,
+    plan: active ? member.plan : null,
+    expiryDate: active ? member.expiryDate : null,
+    dailyLimit: active ? -1 : 3, // 会员无限制，非会员每天3次
+  });
+});
+
+// 创建支付订单
+app.post('/api/membership/create-order', async (req, res) => {
+  try {
+    const { planId, deviceId } = req.body;
+
+    if (!planId || !deviceId) {
+      return res.status(400).json({ success: false, message: '缺少必要参数' });
+    }
+
+    const plan = PLANS.find(p => p.id === planId);
+    if (!plan) {
+      return res.status(400).json({ success: false, message: '无效的套餐' });
+    }
+
+    if (!XUNHU_APPID || !XUNHU_APPSECRET) {
+      return res.status(500).json({ success: false, message: '支付系统尚未配置，请联系管理员' });
+    }
+
+    const orderId = generateOrderId();
+    const timestamp = Math.floor(Date.now() / 1000);
+    const nonceStr = crypto.randomBytes(16).toString('hex');
+
+    // 构建请求参数
+    const params = {
+      version: '1.1',
+      appid: XUNHU_APPID,
+      trade_order_id: orderId,
+      total_fee: plan.price.toString(),
+      title: `WordStory ${plan.name}`,
+      time: timestamp,
+      notify_url: `${process.env.BACKEND_URL || 'https://wordstory-backend-production.up.railway.app'}/api/membership/notify`,
+      return_url: `${process.env.FRONTEND_URL || 'https://wordstory-frontend.vercel.app'}/?payment=success`,
+      callback_url: `${process.env.FRONTEND_URL || 'https://wordstory-frontend.vercel.app'}/?payment=pending`,
+      attach: JSON.stringify({ planId, deviceId }),
+      nonce_str: nonceStr,
+    };
+
+    // 生成签名
+    params.hash = generateXunhuHash(params, XUNHU_APPSECRET);
+
+    // 保存订单到本地
+    saveOrder(orderId, {
+      orderId,
+      planId: plan.id,
+      planName: plan.name,
+      price: plan.price,
+      deviceId,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    });
+
+    // 调用虎皮椒API
+    const response = await fetch(XUNHU_GATEWAY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(params).toString(),
+    });
+
+    const result = await response.json();
+
+    if (result.errcode === 0) {
+      res.json({
+        success: true,
+        orderId,
+        payUrl: result.url,
+        qrCodeUrl: result.url_qrcode,
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: `支付创建失败: ${result.errmsg}`,
+      });
+    }
+  } catch (error) {
+    console.error('创建支付订单失败:', error);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
+// 支付回调通知（虎皮椒服务器调用）
+app.post('/api/membership/notify', express.urlencoded({ extended: false }), (req, res) => {
+  try {
+    const params = req.body;
+    console.log('收到支付回调:', JSON.stringify(params));
+
+    // 验证签名
+    if (!verifyXunhuHash(params, XUNHU_APPSECRET)) {
+      console.error('签名验证失败');
+      return res.send('fail');
+    }
+
+    const { trade_order_id, total_fee, status, attach } = params;
+
+    // 只处理已支付状态
+    if (status !== 'OD') {
+      console.log(`订单 ${trade_order_id} 状态: ${status}，跳过`);
+      return res.send('success');
+    }
+
+    // 获取本地订单
+    const order = getOrder(trade_order_id);
+    if (!order) {
+      console.error(`订单 ${trade_order_id} 不存在`);
+      return res.send('fail');
+    }
+
+    // 防止重复处理
+    if (order.status === 'paid') {
+      return res.send('success');
+    }
+
+    // 解析附加数据
+    let attachData = {};
+    try {
+      attachData = JSON.parse(attach);
+    } catch (e) {
+      console.error('解析attach失败:', e);
+    }
+
+    const { planId, deviceId } = attachData;
+    const plan = PLANS.find(p => p.id === planId);
+
+    if (!plan || !deviceId) {
+      console.error('无效的套餐或设备ID');
+      return res.send('fail');
+    }
+
+    // 更新订单状态
+    order.status = 'paid';
+    order.paidAt = new Date().toISOString();
+    order.transactionId = params.transaction_id;
+    saveOrder(trade_order_id, order);
+
+    // 更新/创建会员
+    const existingMember = getMember(deviceId);
+    const now = new Date();
+    let startDate = now;
+
+    // 如果已有会员且未过期，从当前到期日续期
+    if (existingMember && isMemberActive(existingMember)) {
+      startDate = new Date(existingMember.expiryDate);
+    }
+
+    const expiryDate = new Date(startDate);
+    expiryDate.setDate(expiryDate.getDate() + plan.days);
+
+    saveMember(deviceId, {
+      deviceId,
+      plan: plan.id,
+      planName: plan.name,
+      startDate: startDate.toISOString(),
+      expiryDate: expiryDate.toISOString(),
+      updatedAt: now.toISOString(),
+    });
+
+    console.log(`会员开通成功: ${deviceId}, 套餐: ${plan.name}, 到期: ${expiryDate.toISOString()}`);
+    res.send('success');
+  } catch (error) {
+    console.error('处理支付回调失败:', error);
+    res.send('fail');
+  }
+});
+
+// 查询支付结果
+app.get('/api/membership/order-status', (req, res) => {
+  const { orderId } = req.query;
+  if (!orderId) {
+    return res.status(400).json({ success: false, message: '缺少订单号' });
+  }
+  const order = getOrder(orderId);
+  if (!order) {
+    return res.json({ success: false, status: 'not_found' });
+  }
+  res.json({ success: true, status: order.status });
 });
 
 // ==================== 启动服务器 ====================
