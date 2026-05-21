@@ -1344,6 +1344,175 @@ app.get('/api/membership/order-status', (req, res) => {
   res.json({ success: true, status: order.status });
 });
 
+// ==================== 轻量级账号系统 ====================
+
+const USERS_FILE = path.join(__dirname, 'data', 'users.json');
+
+// 读取所有用户
+function getAllUsers() {
+  if (!fs.existsSync(USERS_FILE)) return {};
+  return JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+}
+
+// 保存所有用户
+function saveAllUsers(users) {
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
+}
+
+// 简单密码哈希（SHA-256）
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(password + '_wordstory_salt_2024').digest('hex');
+}
+
+// 注册账号（支付后绑定）
+app.post('/api/auth/register', (req, res) => {
+  try {
+    const { username, password, deviceId } = req.body;
+
+    if (!username || !password || !deviceId) {
+      return res.status(400).json({ success: false, message: '请填写完整信息' });
+    }
+
+    // 用户名长度限制
+    if (username.length < 2 || username.length > 20) {
+      return res.status(400).json({ success: false, message: '用户名需要2-20个字符' });
+    }
+
+    // 密码长度限制
+    if (password.length < 4 || password.length > 32) {
+      return res.status(400).json({ success: false, message: '密码需要4-32个字符' });
+    }
+
+    const users = getAllUsers();
+
+    // 检查用户名是否已存在
+    if (users[username]) {
+      return res.status(400).json({ success: false, message: '该用户名已被注册' });
+    }
+
+    // 获取当前设备的会员信息
+    const member = getMember(deviceId);
+
+    // 创建用户
+    users[username] = {
+      username,
+      passwordHash: hashPassword(password),
+      deviceId,
+      createdAt: new Date().toISOString(),
+      lastLogin: new Date().toISOString(),
+    };
+
+    saveAllUsers(users);
+
+    // 如果当前设备有会员，迁移到用户名下
+    if (member && isMemberActive(member)) {
+      const memberFilePath = path.join(MEMBERS_DIR, `user_${username}.json`);
+      fs.writeFileSync(memberFilePath, JSON.stringify({
+        ...member,
+        username,
+        deviceId: undefined,
+      }, null, 2), 'utf-8');
+    }
+
+    res.json({ success: true, message: '注册成功', username });
+  } catch (error) {
+    console.error('注册失败:', error);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
+// 登录
+app.post('/api/auth/login', (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ success: false, message: '请填写用户名和密码' });
+    }
+
+    const users = getAllUsers();
+    const user = users[username];
+
+    if (!user) {
+      return res.status(400).json({ success: false, message: '用户名不存在' });
+    }
+
+    if (user.passwordHash !== hashPassword(password)) {
+      return res.status(400).json({ success: false, message: '密码错误' });
+    }
+
+    // 更新最后登录时间
+    user.lastLogin = new Date().toISOString();
+    users[username] = user;
+    saveAllUsers(users);
+
+    // 获取会员信息
+    let memberData = null;
+    const userMemberPath = path.join(MEMBERS_DIR, `user_${username}.json`);
+    if (fs.existsSync(userMemberPath)) {
+      memberData = JSON.parse(fs.readFileSync(userMemberPath, 'utf-8'));
+      if (!isMemberActive(memberData)) memberData = null;
+    }
+
+    res.json({
+      success: true,
+      message: '登录成功',
+      username,
+      isMember: !!memberData,
+      memberExpiry: memberData?.expiryDate || null,
+      memberPlan: memberData?.plan || null,
+    });
+  } catch (error) {
+    console.error('登录失败:', error);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
+// 查询账号状态（是否已注册）
+app.get('/api/auth/check', (req, res) => {
+  const { username } = req.query;
+  if (!username) {
+    return res.json({ success: true, registered: false });
+  }
+  const users = getAllUsers();
+  res.json({ success: true, registered: !!users[username] });
+});
+
+// 修改密码
+app.post('/api/auth/change-password', (req, res) => {
+  try {
+    const { username, oldPassword, newPassword } = req.body;
+
+    if (!username || !oldPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: '请填写完整信息' });
+    }
+
+    if (newPassword.length < 4 || newPassword.length > 32) {
+      return res.status(400).json({ success: false, message: '新密码需要4-32个字符' });
+    }
+
+    const users = getAllUsers();
+    const user = users[username];
+
+    if (!user) {
+      return res.status(400).json({ success: false, message: '用户不存在' });
+    }
+
+    if (user.passwordHash !== hashPassword(oldPassword)) {
+      return res.status(400).json({ success: false, message: '原密码错误' });
+    }
+
+    user.passwordHash = hashPassword(newPassword);
+    users[username] = user;
+    saveAllUsers(users);
+
+    res.json({ success: true, message: '密码修改成功' });
+  } catch (error) {
+    console.error('修改密码失败:', error);
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }
+});
+
 // ==================== 启动服务器 ====================
 
 app.listen(PORT, () => {
