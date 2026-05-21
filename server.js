@@ -296,6 +296,7 @@ ${wordList}
 1. 将以上每个单词自然地融入"${workInfo.title}"的剧情中，创作一段连贯的故事。
 2. 使用作品中的角色名，让故事像剧情回顾一样有连贯性。
 3. 故事要有起承转合，前后衔接自然。
+4. ⚠️ 每个单词的剧情句子必须是一句话，控制在20-50字以内，简洁有力，不要写成长段落。
 
 【输出格式要求】
 严格按以下格式输出，每行一个单词条目，使用 ||| 分隔各字段：
@@ -303,8 +304,8 @@ ${wordList}
 序号. 单词 ||| 音标 ||| 词性 ||| 释义 ||| 剧情句子 ||| 所有词性及含义（用分号分隔不同词性） ||| 词根词缀记忆法（格式如：前缀dis(分开)+词根miss(送,放出)→dismiss(解散)） ||| 词形变化/派生词（格式如：luck(n. 运气)→lucky(adj. 幸运的)→luckily(adv. 幸运地)）
 
 示例：
-1. dismiss ||| /dɪsˈmɪs/ ||| v. ||| 解散，解雇 ||| 在经历了无数次失败后，主角决定 dismiss 过去的身份，以全新的面貌重新开始。 ||| v. 解散，解雇；v. 驳回，不予受理；v. 不再考虑 ||| dis(分开，否定)+miss(送，放出)→dismiss(送走，打发走→解散，解雇) ||| dismiss→dismissal(n. 解雇，免职)→dismissive(adj. 轻蔑的，不屑一顾的)
-2. luck ||| /lʌk/ ||| n. ||| 运气 ||| 范闲觉得自己真是 luck 好，才能在庆国朝堂上步步为营。 ||| n. 运气；n. 幸运 ||| 来自中古荷兰语luc，意为"好运" ||| luck(n. 运气)→lucky(adj. 幸运的)→luckily(adv. 幸运地)→unlucky(adj. 不幸的)
+1. dismiss ||| /dɪsˈmɪs/ ||| v. ||| 解散，解雇 ||| 经历无数次失败后，主角决定dismiss过去的身份，重新开始。 ||| v. 解散，解雇；v. 驳回，不予受理；v. 不再考虑 ||| dis(分开，否定)+miss(送，放出)→dismiss(送走，打发走→解散，解雇) ||| dismiss→dismissal(n. 解雇，免职)→dismissive(adj. 轻蔑的，不屑一顾的)
+2. luck ||| /lʌk/ ||| n. ||| 运气 ||| 范闲觉得自己真是luck好，才能在庆国朝堂上步步为营。 ||| n. 运气；n. 幸运 ||| 来自中古荷兰语luc，意为"好运" ||| luck(n. 运气)→lucky(adj. 幸运的)→luckily(adv. 幸运地)→unlucky(adj. 不幸的)
 
 请直接输出内容，不要添加任何额外的说明或开头结尾。`;
 }
@@ -968,7 +969,7 @@ ${words.map((w, i) => `${i + 1}. ${w.word} ${w.phonetic || ''} ${w.pos || ''} ${
 1. 每个单词写一个独立的剧情句子，像小说片段一样自然流畅
 2. 句子必须来自《${artworkTitle}》的真实剧情场景，禁止编造
 3. 单词要自然融入中文句子中（保留英文原词），不要生硬
-4. 每个句子60-150字，要有画面感、情感张力和浪漫氛围
+4. ⚠️ 每个句子必须是一句话，控制在20-50字以内，简洁有力，不要写成长段落
 5. 如果单词没有提供释义，请自动补充准确的释义
 6. 每个句子标注涉及的角色名
 
@@ -978,14 +979,14 @@ ${words.map((w, i) => `${i + 1}. ${w.word} ${w.phonetic || ''} ${w.pos || ''} ${
 
 ## 示例（以《哈利·波特》为例）
 {"data":[
-  {"word":"destiny","phonetic":"/ˈdestəni/","pos":"n.","meaning":"命运","storyContext":"分院帽在他耳边低语，斯莱特林能帮助你走向greatness，但哈利心中想着的不是destiny，而是那个额头上留下闪电疤痕的夜晚，以及那个他从未谋面的父母。","character":"哈利"},
-  {"word":"eternal","phonetic":"/ɪˈtɜːnl/","pos":"adj.","meaning":"永恒的","storyContext":"斯内普教授的魔药学课上，那缕银色的记忆在冥想盆中旋转，他终于明白了那句'Always'的重量——有些爱，是eternal的，即使跨越生死也无法磨灭。","character":"斯内普"}
+  {"word":"destiny","phonetic":"/ˈdestəni/","pos":"n.","meaning":"命运","storyContext":"分院帽低语斯莱特林能带来greatness，但哈利心中想的不是destiny，而是父母离去的那个夜晚。","character":"哈利"},
+  {"word":"eternal","phonetic":"/ɪˈtɜːnl/","pos":"adj.","meaning":"永恒的","storyContext":"冥想盆中银色记忆旋转，斯内普终于明白了那句Always——有些爱是eternal的。","character":"斯内普"}
 ]}
 
 ## 示例（以《陷入我们的热恋》为例）
 {"data":[
-  {"word":"forehead","phonetic":"/ˈfɔːhed/","pos":"n.","meaning":"前额","storyContext":"第一次在巷口撞见，徐栀看着少年额角的碎发，风一吹就贴在forehead上，那一刻她竟忘了躲开，只听见自己心跳如雷。","character":"徐栀"},
-  {"word":"nerve","phonetic":"/nɜːv/","pos":"n.","meaning":"神经；勇气","storyContext":"她攥紧了衣角，才攒够nerve抬头，对上陈路周那双带笑的眼睛，少年歪着头看她，像是在看一只受惊的小猫。","character":"徐栀"}
+  {"word":"forehead","phonetic":"/ˈfɔːhed/","pos":"n.","meaning":"前额","storyContext":"巷口初遇，少年额角碎发被风吹贴在forehead上，徐栀竟忘了躲开。","character":"徐栀"},
+  {"word":"nerve","phonetic":"/nɜːv/","pos":"n.","meaning":"神经；勇气","storyContext":"她攥紧衣角攒够nerve抬头，对上陈路周那双带笑的眼睛。","character":"徐栀"}
 ]}
 
 请直接返回JSON数组。`;
